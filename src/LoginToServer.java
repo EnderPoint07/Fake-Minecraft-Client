@@ -21,6 +21,7 @@ public class LoginToServer {
 
         String address = "127.0.0.1";
         String username = "EnderPoint_07";
+        String UUID = "1f81ba9c55674a32bb38cdd3be13ba97";
         int port = 25565;
 
         InetSocketAddress host = new InetSocketAddress(address, port);
@@ -62,7 +63,7 @@ public class LoginToServer {
         int publicKeyLen = readVarInt(input);
         byte[] publicKeyBytes = new byte[publicKeyLen];
         input.readFully(publicKeyBytes);
-        String publicKey = "-----BEGIN PUBLIC KEY-----\n" + Base64.getEncoder().encodeToString(publicKeyBytes)+ "\n-----END PUBLIC KEY-----";
+        String publicKey = Base64.getEncoder().encodeToString(publicKeyBytes);
 
         // Read the verifyToken
         int verifyTokenLen = readVarInt(input);
@@ -94,7 +95,7 @@ public class LoginToServer {
 
         System.out.println("Done!");
 
-        System.out.println("Proceeding with Encryption Response");
+        System.out.println("Proceeding with Encryption Response...");
         byte[] encryptionResponse = encryptionResponse(encryptedSecret.length, encryptedSecret,
                 encryptedVerifyToken.length, encryptedVerifyToken);
         // C->S Encryption Response
@@ -102,7 +103,7 @@ public class LoginToServer {
         output.write(encryptionResponse);
 
 
-        System.out.println(encryptionResponse.length + " " + Arrays.toString(encryptionResponse));
+        System.out.println("Response length: " + encryptionResponse.length + " Response: " + Arrays.toString(encryptionResponse));
         System.out.println("Done!");
 
         // S->C Login Success
@@ -169,8 +170,8 @@ public class LoginToServer {
         DataOutputStream response = new DataOutputStream(buffers);
 
         System.out.println(secretLen + " " + tokenLen);
-        System.out.println(Arrays.toString(secret));
-        System.out.println(Arrays.toString(token));
+        System.out.println("Secret: " + Arrays.toString(secret));
+        System.out.println("Token: " + Arrays.toString(token));
 
 
         response.writeByte(0x01); //packet id for Encryption Response
