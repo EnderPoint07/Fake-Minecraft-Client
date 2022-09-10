@@ -116,7 +116,7 @@ public class LoginToServer {
             input.readFully(disconnectReasonBytes);
             String disconnectReason = new String(disconnectReasonBytes);
 
-            System.out.println("Disconnect reason: " + disconnectReason);
+            throw new IOException("Disconnect reason: " + disconnectReason);
         }
 
         /* S->C : Pong
