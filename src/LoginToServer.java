@@ -19,7 +19,7 @@ import java.util.Base64;
 public class LoginToServer {
     public static void main(String [] args) throws Exception {
 
-        String address = "127.0.0.1";
+        String address = "play.mcsmp.dev";
         String username = "EnderPoint_07";
         String UUID = "1f81ba9c55674a32bb38cdd3be13ba97";
         int port = 25565;
@@ -36,22 +36,26 @@ public class LoginToServer {
 
         System.out.println("Attempting handshake... "+host.getAddress().toString());
         byte [] handshakeMessage = createHandshakeMessage(address, port);
-        // C->S : Handshake State=1
+        // C->S : Handshake State= 2
         // send packet length and packet
         writeVarInt(output, handshakeMessage.length);
         output.write(handshakeMessage);
 
         System.out.println("Attempting Login..."+ username);
-        byte [] loginMessage = createLoginStartMessage(username);
+        byte [] loginMessage = createLoginStartMessage(username, UUID);
         // C->S : Login Start
         writeVarInt(output, loginMessage.length);
         output.write(loginMessage);
         System.out.println("Done!");
 
         System.out.println("Reading Encryption Request...");
-        // S->C : Encription Request
+        // S->C : Encryption Request
         readVarInt(input); // Packet size
-        readVarInt(input); // Packet id
+        int packetId = readVarInt(input); // Packet id
+
+        if (packetId != 0x01) { // we want encryption request
+            disconnected(input);
+        }
 
         // Read the server id (Empty)
         int length = readVarInt(input); // length of the string
@@ -85,13 +89,13 @@ public class LoginToServer {
         System.out.println("Encrypting the shared secret...");
         // Encrypt the secret and secretLength with server's public key
         final String ALGORITHM = "RSA";
-        byte[] encryptedSecret = encrypt(publicKeyBytes, Arrays.toString(secret.getEncoded()).getBytes(StandardCharsets.UTF_8), ALGORITHM);
+        byte[] encryptedSecret = encrypt(publicKeyBytes, secret.getEncoded(), ALGORITHM);
 
         System.out.println("Done!");
 
         System.out.println("Encrypting the Verify Token...");
         // Encrypt the VerifyToken with server's public key
-        byte[] encryptedVerifyToken = encrypt(publicKeyBytes, Arrays.toString(verifyTokenBytes).getBytes(StandardCharsets.UTF_8), ALGORITHM);
+        byte[] encryptedVerifyToken = encrypt(publicKeyBytes, verifyTokenBytes, ALGORITHM);
 
         System.out.println("Done!");
 
@@ -107,16 +111,15 @@ public class LoginToServer {
         System.out.println("Done!");
 
         // S->C Login Success
-        int packetSize = readVarInt(input); // packet size
-        int packetId = readVarInt(input); // packet id
+        int loginPacketSize = readVarInt(input); // packet size
+        int loginPacketId = readVarInt(input); // packet id
 
-        if(packetId != 0x02) { // We want login success
-            int disconnectReasonLen = readVarInt(input); // disconnect reason length
-            byte[] disconnectReasonBytes = new byte[disconnectReasonLen]; // disconnect reason bytes
-            input.readFully(disconnectReasonBytes);
-            String disconnectReason = new String(disconnectReasonBytes);
+        if(loginPacketId != 0x02) { // We want login success
+            System.out.println("Bad packet id: " + loginPacketId);
 
-            throw new IOException("Disconnect reason: " + disconnectReason);
+            if(loginPacketId == 0x00) { // If it's a disconnect packet
+                disconnected(input);
+            }
         }
 
         /* S->C : Pong
@@ -136,10 +139,15 @@ public class LoginToServer {
         //System.out.println(json);
 
         System.out.println("Done");
+    }
 
-        while (true) {
+    public static void disconnected(DataInputStream input) throws IOException {
+        int disconnectReasonLen = readVarInt(input); // disconnect reason length
+        byte[] disconnectReasonBytes = new byte[disconnectReasonLen]; // disconnect reason bytes
+        input.readFully(disconnectReasonBytes);
+        String disconnectReason = new String(disconnectReasonBytes);
 
-        }
+        throw new IOException("Disconnect reason: " + disconnectReason);
     }
 
     public static byte [] createHandshakeMessage(String host, int port) throws IOException {
@@ -154,13 +162,15 @@ public class LoginToServer {
 
         return buffer.toByteArray();
     }
-    public static byte [] createLoginStartMessage(String username) throws IOException {
+    public static byte [] createLoginStartMessage(String username, String UUID) throws IOException {
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
 
         DataOutputStream login = new DataOutputStream(buffer);
         login.writeByte(0x00); //packet id for login
         writeString(login, username, StandardCharsets.UTF_8);
         login.writeBoolean(false); //do not send sig stuff
+        //login.writeBoolean(true); // send UUID
+        //writeString(login, UUID, StandardCharsets.UTF_8);
 
         return buffer.toByteArray();
     }
