@@ -19,7 +19,7 @@ import java.util.Base64;
 public class LoginToServer {
     public static void main(String [] args) throws Exception {
 
-        String address = "play.mcsmp.dev";
+        String address = "127.0.0.1";
         String username = "EnderPoint_07";
         String UUID = "1f81ba9c55674a32bb38cdd3be13ba97";
         int port = 25565;
