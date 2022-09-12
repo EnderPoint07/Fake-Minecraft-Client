@@ -132,22 +132,6 @@ public class LoginToServer {
             }
         }
 
-        /* S->C : Pong
-        readVarInt(input);
-        packetId = readVarInt(input);
-        if (packetId == -1) {
-            throw new IOException("Premature end of stream.");
-        }
-
-        if (packetId != 0x01) {
-            throw new IOException("Invalid packetID");
-        }
-        long pingtime = input.readLong(); //read response
-        */
-
-        // print out server info
-        //System.out.println(json);
-
         System.out.println("Done");
     }
 
