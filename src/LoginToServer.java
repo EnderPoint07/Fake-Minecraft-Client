@@ -1,4 +1,5 @@
-import javax.crypto.Cipher;
+import javax.crypto.*;
+import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -17,6 +18,12 @@ import java.util.Arrays;
 import java.util.Base64;
 
 public class LoginToServer {
+
+    static DataOutputStream output = null;
+    static DataInputStream input = null;
+    static CipherInputStream cipherInput = null;
+    static CipherOutputStream cipherOutput = null;
+
     public static void main(String [] args) throws Exception {
 
         String address = "127.0.0.1";
@@ -30,8 +37,8 @@ public class LoginToServer {
         socket.connect(host, 3000);
         System.out.println("Done!");
         System.out.println("Making streams...");
-        DataOutputStream output = new DataOutputStream(socket.getOutputStream());
-        DataInputStream input = new DataInputStream(socket.getInputStream());
+        output = new DataOutputStream(socket.getOutputStream());
+        input = new DataInputStream(socket.getInputStream());
         System.out.println("Done!");
 
         System.out.println("Attempting handshake... "+host.getAddress().toString());
@@ -87,15 +94,15 @@ public class LoginToServer {
         Key secret = getSecureRandomKey(CIPHER, 128);
 
         System.out.println("Encrypting the shared secret...");
+
         // Encrypt the secret and secretLength with server's public key
-        final String ALGORITHM = "RSA";
-        byte[] encryptedSecret = encrypt(publicKeyBytes, secret.getEncoded(), ALGORITHM);
+        byte[] encryptedSecret = encrypt(publicKeyBytes, secret.getEncoded(), "RSA");
 
         System.out.println("Done!");
 
         System.out.println("Encrypting the Verify Token...");
         // Encrypt the VerifyToken with server's public key
-        byte[] encryptedVerifyToken = encrypt(publicKeyBytes, verifyTokenBytes, ALGORITHM);
+        byte[] encryptedVerifyToken = encrypt(publicKeyBytes, verifyTokenBytes, "RSA");
 
         System.out.println("Done!");
 
@@ -110,9 +117,12 @@ public class LoginToServer {
         System.out.println("Response length: " + encryptionResponse.length + " Response: " + Arrays.toString(encryptionResponse));
         System.out.println("Done!");
 
+        // Enable Encryption/Decryption of packets
+        setUpCipherStreams(publicKeyBytes, secret.getEncoded());
+
         // S->C Login Success
-        int loginPacketSize = readVarInt(input); // packet size
-        int loginPacketId = readVarInt(input); // packet id
+        int loginPacketSize = readVarInt(cipherInput); // packet size
+        int loginPacketId = readVarInt(cipherInput); // packet id
 
         if(loginPacketId != 0x02) { // We want login success
             System.out.println("Bad packet id: " + loginPacketId);
@@ -218,6 +228,26 @@ public class LoginToServer {
         return encryptedBytes;
     }
 
+    public static void setUpCipherStreams(byte[] publicKey, byte[] secretKey) throws Exception {
+
+        // Make the IV
+        IvParameterSpec iv = new IvParameterSpec(secretKey);
+        // Set up the cipher input/decrypt stream
+        SecretKey Skey = new SecretKeySpec(secretKey, "AES"); // Make the secret key
+        Cipher decryptCipher = Cipher.getInstance("AES/CFB/NoPadding"); // Make the cipher
+        decryptCipher.init(Cipher.DECRYPT_MODE, Skey, iv); // set to decrypt mode
+
+        cipherInput = new CipherInputStream(input, decryptCipher); // Set the CipherInputStream to decrypt the in stream
+
+        // Set up the cipher output/encrypt stream
+        PublicKey Pkey = KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(publicKey));
+
+        Cipher encryptCipher = Cipher.getInstance("RSA");
+        encryptCipher.init(Cipher.ENCRYPT_MODE, Pkey);
+
+        cipherOutput = new CipherOutputStream(output, encryptCipher);
+    }
+
     public static void writeString(DataOutputStream out, String string, Charset charset) throws IOException {
         byte [] bytes = string.getBytes(charset);
         writeVarInt(out, bytes.length);
@@ -241,6 +271,19 @@ public class LoginToServer {
         int j = 0;
         while (true) {
             int k = in.readByte();
+            i |= (k & 0x7F) << j++ * 7;
+            if (j > 5) throw new RuntimeException("VarInt too big");
+            if ((k & 0x80) != 128) break;
+        }
+        return i;
+    }
+
+    public static int readVarInt(CipherInputStream cipher) throws IOException {
+        int i = 0;
+        int j = 0;
+        while (true) {
+            int k = cipher.read();
+
             i |= (k & 0x7F) << j++ * 7;
             if (j > 5) throw new RuntimeException("VarInt too big");
             if ((k & 0x80) != 128) break;
