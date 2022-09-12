@@ -1,6 +1,5 @@
 # Fake-Minecraft-Client
 
-i am not doing this anymore but if you decide to do this. be warned. also feel free to ask me questions on my discord
-i also found https://github.com/HyCraftHD/Minecraft-Authenticator which does the authentication
+I am gonna be using https://github.com/MCPfannkuchenYT/AccountAPI to do the auth stuff because microsoft made it wayy to complex for me and my 2 braincells
 
 DotM38#5497
