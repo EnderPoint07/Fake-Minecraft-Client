@@ -1,5 +1,5 @@
 # Fake-Minecraft-Client
 
-microsoft made authentication wayy to complex for me and my 2 braincells to handle so im disconntinuing my idea
+login to minecraft server without a client.
 
 DotM38#5497

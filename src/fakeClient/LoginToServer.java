@@ -310,7 +310,7 @@ public class LoginToServer {
         return encryptedBytes;
     }
 
-    public static void setUpCipherStreams(byte[] secretKey, boolean compressed) throws Exception {
+    public static void setUpCipherStreams(byte[] secretKey) throws Exception {
 
         // Make the IV
         IvParameterSpec iv = new IvParameterSpec(secretKey);
