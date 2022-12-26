@@ -4,4 +4,7 @@
 out/
 Test Minecraft Server
 Fake Minecraft Client.iml
+src/fakeClient/lib/jzlib
+src/fakeClient/lib/jzlib-1.1.3
+
 
