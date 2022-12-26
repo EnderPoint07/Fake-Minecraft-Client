@@ -1,21 +1,28 @@
-import javax.crypto.*;
+package fakeClient;
+
+import fakeClient.lib.AccountAPI.*;
+//import fakeClient.lib.jzlib.*;
+
+import javax.crypto.Cipher;
+import javax.crypto.CipherInputStream;
+import javax.crypto.CipherOutputStream;
+import javax.crypto.SecretKey;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.math.BigInteger;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
-import java.security.Key;
-import java.security.KeyFactory;
-import java.security.PublicKey;
-import java.security.SecureRandom;
+import java.security.*;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.zip.*;
 
 public class LoginToServer {
 
@@ -23,12 +30,13 @@ public class LoginToServer {
     static DataInputStream input = null;
     static CipherInputStream cipherInput = null;
     static CipherOutputStream cipherOutput = null;
+    static InflaterInputStream decomprInput = null;
+    static DeflaterOutputStream comprOutput = null;
 
     public static void main(String [] args) throws Exception {
 
         String address = "127.0.0.1";
         String username = "EnderPoint_07";
-        String UUID = "1f81ba9c55674a32bb38cdd3be13ba97";
         int port = 25565;
 
         InetSocketAddress host = new InetSocketAddress(address, port);
@@ -49,7 +57,7 @@ public class LoginToServer {
         output.write(handshakeMessage);
 
         System.out.println("Attempting Login..."+ username);
-        byte [] loginMessage = createLoginStartMessage(username, UUID);
+        byte [] loginMessage = createLoginStartMessage(username);
         // C->S : Login Start
         writeVarInt(output, loginMessage.length);
         output.write(loginMessage);
@@ -61,6 +69,7 @@ public class LoginToServer {
         int packetId = readVarInt(input); // Packet id
 
         if (packetId != 0x01) { // we want encryption request
+            System.out.println("Packet id was: " + packetId);
             disconnected(input);
         }
 
@@ -88,10 +97,34 @@ public class LoginToServer {
 
         System.out.println("Done!");
 
+        System.out.println("Creating account");
+
+        MicrosoftAccount Account = new MicrosoftAccount();
+
         System.out.println("Creating Shared Secret...");
         // Generate the shared secret
-        final String CIPHER = "AES";
-        Key secret = getSecureRandomKey(CIPHER, 128);
+        Key secret = getSecureRandomKey("AES", 128);
+
+        System.out.println("Generating the shah1_hash...");
+        String sha1Hash = generateHash(serverId.getBytes(StandardCharsets.UTF_8), secret.getEncoded(), publicKeyBytes, "SHA1");
+        System.out.println("shah1Hash: "+sha1Hash);
+
+        String payload = "{" +
+                            "\"accessToken\": \"%TOKEN%\"," +
+                            "\"selectedProfile\": \"%UUID%\"," +
+                            "\"serverId\": \"%HASH%\"" +
+                         "}";
+
+        System.out.println("UUID: "+ Account.getUuid().toString());
+
+        String response = Utils.sendAndRecieveJson(
+                "https://sessionserver.mojang.com/session/minecraft/join",
+                payload.replace("%TOKEN%", Account.getAccessToken()).replace("%HASH%", sha1Hash).replace("%UUID%",
+                        Account.getUuid().toString()),
+                true
+        );
+
+        System.out.println("response: " + response);
 
         System.out.println("Encrypting the shared secret...");
 
@@ -117,28 +150,92 @@ public class LoginToServer {
         System.out.println("Response length: " + encryptionResponse.length + " Response: " + Arrays.toString(encryptionResponse));
         System.out.println("Done!");
 
+        System.out.println("Enabling Encryption on both sides");
+
         // Enable Encryption/Decryption of packets
-        setUpCipherStreams(publicKeyBytes, secret.getEncoded());
+        setUpCipherStreams(secret.getEncoded());
+
+        // S -> C Set compression packet
+        int compressionPacketSize = readVarInt(cipherInput);
+        int compressionPacketId = readVarInt(cipherInput);
+
+        int Threshold = 0;
+        if (compressionPacketId == 0x03) {
+            Threshold = readVarInt(cipherInput);
+            System.out.println("Compression Threshold: " + Threshold);
+        }else {
+            System.out.println("No compression");
+        }
+
+        // Set up compression/decompression
+        System.out.println("Setting up encryption/decompression...");
+        setUpCompressionStreams();
 
         // S->C Login Success
-        int loginPacketSize = readVarInt(cipherInput); // packet size
-        int loginPacketId = readVarInt(cipherInput); // packet id
+        int loginPacketLength = readVarInt(cipherInput); // Length of Data Length + compressed length of (Packet ID
+        // + Data)
+        int loginPacketDataLength = readVarInt(cipherInput); // Length of uncompressed (Packet ID + Data) or 0
+
+        System.out.println("loginPacketLength: " + loginPacketLength);
+        System.out.println("loginPacketDataLength: " + loginPacketDataLength);
+
+        int loginPacketId = -1;
+        byte[] loginPacketIdComprBytes = new byte[1];
+        cipherInput.readNBytes(loginPacketIdComprBytes, 0, 1);
+
+        if (loginPacketDataLength != 0) { // If the packet is compressed
+
+            loginPacketId = readVarInt(decomprInput);
+        }
+
+        System.out.println("loginPacketId: " + loginPacketId);
+
+
 
         if(loginPacketId != 0x02) { // We want login success
             System.out.println("Bad packet id: " + loginPacketId);
 
             if(loginPacketId == 0x00) { // If it's a disconnect packet
-                disconnected(input);
+                disconnected(cipherInput);
             }
+            return;
         }
 
         System.out.println("Done");
+    }
+
+    static void setUpCompressionStreams() {
+        comprOutput = new DeflaterOutputStream(cipherOutput);
+        decomprInput = new InflaterInputStream(cipherInput);
+    }
+
+    private static String generateHash(byte[] serverIdBytes, byte[] secretBytes, byte[] publicKeyBytes,
+                                       String ALGORITHM) throws Exception {
+
+        MessageDigest digest = MessageDigest.getInstance(ALGORITHM);
+
+        digest.update(serverIdBytes);
+        digest.update(secretBytes);
+        digest.update(publicKeyBytes);
+
+        return new BigInteger(digest.digest()).toString(16);
     }
 
     public static void disconnected(DataInputStream input) throws IOException {
         int disconnectReasonLen = readVarInt(input); // disconnect reason length
         byte[] disconnectReasonBytes = new byte[disconnectReasonLen]; // disconnect reason bytes
         input.readFully(disconnectReasonBytes);
+        String disconnectReason = new String(disconnectReasonBytes);
+
+        throw new IOException("Disconnect reason: " + disconnectReason);
+    }
+
+    public static void disconnected(CipherInputStream input) throws IOException {
+        int disconnectReasonLen = readVarInt(input); // disconnect reason length
+        byte[] disconnectReasonBytes = new byte[disconnectReasonLen]; // disconnect reason bytes
+
+        input.read(disconnectReasonBytes);
+
         String disconnectReason = new String(disconnectReasonBytes);
 
         throw new IOException("Disconnect reason: " + disconnectReason);
@@ -156,13 +253,14 @@ public class LoginToServer {
 
         return buffer.toByteArray();
     }
-    public static byte [] createLoginStartMessage(String username, String UUID) throws IOException {
+    public static byte [] createLoginStartMessage(String username) throws IOException {
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
 
         DataOutputStream login = new DataOutputStream(buffer);
         login.writeByte(0x00); //packet id for login
         writeString(login, username, StandardCharsets.UTF_8);
         login.writeBoolean(false); //do not send sig stuff
+
         //login.writeBoolean(true); // send UUID
         //writeString(login, UUID, StandardCharsets.UTF_8);
 
@@ -212,23 +310,24 @@ public class LoginToServer {
         return encryptedBytes;
     }
 
-    public static void setUpCipherStreams(byte[] publicKey, byte[] secretKey) throws Exception {
+    public static void setUpCipherStreams(byte[] secretKey, boolean compressed) throws Exception {
 
         // Make the IV
         IvParameterSpec iv = new IvParameterSpec(secretKey);
+
         // Set up the cipher input/decrypt stream
         SecretKey Skey = new SecretKeySpec(secretKey, "AES"); // Make the secret key
-        Cipher decryptCipher = Cipher.getInstance("AES/CFB/NoPadding"); // Make the cipher
+
+
+        Cipher decryptCipher = Cipher.getInstance("AES/CFB8/NoPadding"); // Make the cipher
         decryptCipher.init(Cipher.DECRYPT_MODE, Skey, iv); // set to decrypt mode
 
-        cipherInput = new CipherInputStream(input, decryptCipher); // Set the CipherInputStream to decrypt the in stream
-
         // Set up the cipher output/encrypt stream
-        PublicKey Pkey = KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(publicKey));
+        Cipher encryptCipher = Cipher.getInstance("AES/CFB8/NoPadding");
+        encryptCipher.init(Cipher.ENCRYPT_MODE, Skey, iv);
 
-        Cipher encryptCipher = Cipher.getInstance("RSA");
-        encryptCipher.init(Cipher.ENCRYPT_MODE, Pkey);
 
+        cipherInput = new CipherInputStream(input, decryptCipher); // Set the CipherInputStream to decrypt the in stream
         cipherOutput = new CipherOutputStream(output, encryptCipher);
     }
 
@@ -274,5 +373,18 @@ public class LoginToServer {
         }
         return i;
     }
+    public static int readVarInt(InflaterInputStream input) throws IOException {
+        int i = 0;
+        int j = 0;
+        while (true) {
+            int k = input.read();
+
+            i |= (k & 0x7F) << j++ * 7;
+            if (j > 5) throw new RuntimeException("VarInt too big");
+            if ((k & 0x80) != 128) break;
+        }
+        return i;
+    }
+
 
 }

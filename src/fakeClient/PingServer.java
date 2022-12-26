@@ -1,15 +1,21 @@
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
+package fakeClient;
+
+import java.io.*;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.TimeUnit;
 
 public class PingServer {
-    public static void main(String[] args) throws IOException {
-        String address = "localhost";
+
+    public static DataOutputStream output;
+    public static DataInputStream input;
+    public static File serverStatus = new File("status.json");
+    public static FileWriter serverStatusWriter;
+
+    public static void main(String[] args) throws IOException, InterruptedException {
+        String address = "play.mcsmp.dev";
         int port = 25565;
 
         InetSocketAddress host = new InetSocketAddress(address, port);
@@ -18,15 +24,19 @@ public class PingServer {
         socket.connect(host, 3000);
         System.out.println("Done!");
         System.out.println("Making streams...");
-        DataOutputStream output = new DataOutputStream(socket.getOutputStream());
-        DataInputStream input = new DataInputStream(socket.getInputStream());
-
+        output = new DataOutputStream(socket.getOutputStream());
+        input = new DataInputStream(socket.getInputStream());
         System.out.println("Done!");
-        System.out.println("Attempting handshake... " + host.getAddress().toString());
 
+        if(serverStatus.createNewFile()){
+            System.out.println("File created");
+            serverStatusWriter = new FileWriter("status.json");
+        }else {
+            serverStatusWriter = new FileWriter("status.json");
+        }
 
-        byte[] handshakeMessage = createHandshakeMessage(address, port);
-
+        System.out.println("Attempting handshake... "+host.getAddress().toString());
+        byte [] handshakeMessage = createHandshakeMessage(address, port);
         // C->S : Handshake State=1
         // send packet length and packet
         writeVarInt(output, handshakeMessage.length);
@@ -35,7 +45,6 @@ public class PingServer {
         // C->S : Request
         output.writeByte(0x01); //size is only 1
         output.writeByte(0x00); //packet id for ping
-
 
         // S->C : Response
         int size = readVarInt(input);
@@ -63,29 +72,16 @@ public class PingServer {
         String json = new String(in);
 
 
-        // C->S : Ping
-        long now = System.currentTimeMillis();
-        output.writeByte(0x09); //size of packet
-        output.writeByte(0x01); //0x01 for ping
-        output.writeLong(now); //time!?
-
-        // S->C : Pong
-        readVarInt(input);
-        packetId = readVarInt(input);
-        if (packetId == -1) {
-            throw new IOException("Premature end of stream.");
-        }
-
-        if (packetId != 0x01) {
-            throw new IOException("Invalid packetID");
-        }
-        long pingtime = input.readLong(); //read response
-
+        System.out.println("Done!");
 
         // print out server info
         System.out.println(json);
+        serverStatusWriter.write(json);
+        serverStatusWriter.close();
 
-        System.out.println("Done!");
+        TimeUnit.SECONDS.sleep(15);
+
+        main(args);
     }
 
     public static byte[] createHandshakeMessage(String host, int port) throws IOException {
