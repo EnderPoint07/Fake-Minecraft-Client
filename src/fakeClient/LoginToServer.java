@@ -16,16 +16,18 @@ import java.io.IOException;
 import java.math.BigInteger;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.security.*;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.UUID;
 import java.util.zip.*;
 
 public class LoginToServer {
-
+    
     static DataOutputStream output = null;
     static DataInputStream input = null;
     static CipherInputStream cipherInput = null;
@@ -168,25 +170,17 @@ public class LoginToServer {
         }
 
         // Set up compression/decompression
-        System.out.println("Setting up encryption/decompression...");
+        System.out.println("Setting up compression/decompression...");
         setUpCompressionStreams();
 
         // S->C Login Success
-        int loginPacketLength = readVarInt(cipherInput); // Length of Data Length + compressed length of (Packet ID
-        // + Data)
+        int loginPacketLength = readVarInt(cipherInput); // Length of Data Length + compressed length of (Packet ID + Data)
         int loginPacketDataLength = readVarInt(cipherInput); // Length of uncompressed (Packet ID + Data) or 0
 
         System.out.println("loginPacketLength: " + loginPacketLength);
         System.out.println("loginPacketDataLength: " + loginPacketDataLength);
 
-        int loginPacketId = -1;
-        byte[] loginPacketIdComprBytes = new byte[1];
-        cipherInput.readNBytes(loginPacketIdComprBytes, 0, 1);
-
-        if (loginPacketDataLength != 0) { // If the packet is compressed
-
-            loginPacketId = readVarInt(decomprInput);
-        }
+        int loginPacketId = readVarInt(cipherInput);
 
         System.out.println("loginPacketId: " + loginPacketId);
 
@@ -200,6 +194,23 @@ public class LoginToServer {
             }
             return;
         }
+
+        byte[] LUuidBytes = cipherInput.readNBytes(16);
+
+        ByteBuffer byteBuffer = ByteBuffer.wrap(LUuidBytes);
+        long high = byteBuffer.getLong();
+        long low = byteBuffer.getLong();
+        UUID LUuid = new UUID(high, low);
+        System.out.println("LUuid: " + LUuid);
+
+        String LUsername = new String(cipherInput.readNBytes(16), StandardCharsets.UTF_8);
+        System.out.println("LUsername: " + LUsername);
+
+//        int aarLen = readVarInt(cipherInput);
+//        System.out.println("Number of indexes: " + aarLen);
+
+        String Name = new String(cipherInput.readNBytes(32767), StandardCharsets.ISO_8859_1);
+        System.out.println("Name: " + Name);
 
         System.out.println("Done");
     }
